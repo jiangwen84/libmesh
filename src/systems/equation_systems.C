@@ -126,6 +126,115 @@ void EquationSystems::init ()
 #endif
 }
 
+void EquationSystems::reinit_xfem()
+{
+  parallel_object_only();
+
+  const unsigned int n_sys = this->n_systems();
+  libmesh_assert_not_equal_to (n_sys, 0);
+
+  // We may have added new systems since our last
+  // EquationSystems::(re)init call
+  bool _added_new_systems = false;
+  for (unsigned int i=0; i != n_sys; ++i)
+    if (!this->get_system(i).is_initialized())
+      _added_new_systems = true;
+
+  if (_added_new_systems)
+    {
+      // Our DofObjects will need space for the additional systems
+      MeshBase::node_iterator       node_it  = _mesh.nodes_begin();
+      const MeshBase::node_iterator node_end = _mesh.nodes_end();
+
+      for ( ; node_it != node_end; ++node_it)
+        (*node_it)->set_n_systems(n_sys);
+
+      MeshBase::element_iterator       elem_it  = _mesh.elements_begin();
+      const MeshBase::element_iterator elem_end = _mesh.elements_end();
+
+      for ( ; elem_it != elem_end; ++elem_it)
+        (*elem_it)->set_n_systems(n_sys);
+
+      // And any new systems will need initialization
+      for (unsigned int i=0; i != n_sys; ++i)
+        if (!this->get_system(i).is_initialized())
+          this->get_system(i).init();
+    }
+
+
+  // We used to assert that all nodes and elements *already* had
+  // n_systems() properly set; however this is false in the case where
+  // user code has manually added nodes and/or elements to an
+  // already-initialized system.
+
+  // Make sure all the \p DofObject entities know how many systems
+  // there are.
+  {
+    // All the nodes
+    MeshBase::node_iterator       node_it  = _mesh.nodes_begin();
+    const MeshBase::node_iterator node_end = _mesh.nodes_end();
+
+    for ( ; node_it != node_end; ++node_it)
+      {
+        Node *node = *node_it;
+        node->set_n_systems(this->n_systems());
+      }
+
+    // All the elements
+    MeshBase::element_iterator       elem_it  = _mesh.elements_begin();
+    const MeshBase::element_iterator elem_end = _mesh.elements_end();
+
+    for ( ; elem_it != elem_end; ++elem_it)
+      {
+        Elem *elem = *elem_it;
+        elem->set_n_systems(this->n_systems());
+      }
+  }
+
+  // Localize each system's vectors
+  for (unsigned int i=0; i != this->n_systems(); ++i)
+    this->get_system(i).re_update();
+
+  bool dof_constraints_created = false;
+  bool mesh_changed = false;
+
+  // FIXME: For backwards compatibility, assume
+  // refine_and_coarsen_elements or refine_uniformly have already
+  // been called
+  {
+    for (unsigned int i=0; i != this->n_systems(); ++i)
+      {
+        System &sys = this->get_system(i);
+
+        // Even if the system doesn't have any variables in it we want
+        // consistent behavior; e.g. distribute_dofs should have the
+        // opportunity to count up zero dofs on each processor.
+        //
+        // Who's been adding zero-var systems anyway, outside of my
+        // unit tests? - RHS
+        // if(!sys.n_vars())
+        // continue;
+
+        sys.get_dof_map().distribute_dofs(_mesh);
+
+        // Recreate any user or internal constraints
+        sys.reinit_constraints();
+
+        sys.prolong_vectors();
+      }
+    mesh_changed = true;
+    dof_constraints_created = true;
+  }
+
+  if (mesh_changed)
+    this->get_mesh().contract();
+
+  if (mesh_changed)
+    {
+      for (unsigned int i=0; i != this->n_systems(); ++i)
+        this->get_system(i).reinit();
+    }
+}
 
 
 void EquationSystems::reinit ()

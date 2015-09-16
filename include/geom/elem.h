@@ -265,6 +265,10 @@ public:
    */
   bool has_neighbor (const Elem* elem) const;
 
+  void set_sibling(Elem* n);
+  bool has_sibling() const;
+  Elem* sibling() const;
+
   /**
    * If the element \p elem in question is a neighbor
    * of a child of this element, this returns a pointer
@@ -1343,6 +1347,8 @@ protected:
    */
   Elem** _elemlinks;
 
+  Elem* _sibling;
+
 #ifdef LIBMESH_ENABLE_AMR
   /**
    * Pointers to this element's children.
@@ -1379,6 +1385,7 @@ protected:
    * been padding anyway.
    */
   unsigned char _p_level;
+
 #endif
 };
 
@@ -1403,6 +1410,7 @@ Elem::Elem(const unsigned int nn,
            Node** nodelinkdata) :
   _nodes(nodelinkdata),
   _elemlinks(elemlinkdata),
+  _sibling(NULL),
 #ifdef LIBMESH_ENABLE_AMR
   _children(NULL),
 #endif
@@ -1607,7 +1615,6 @@ bool Elem::has_neighbor (const Elem* elem) const
 }
 
 
-
 inline
 Elem* Elem::child_neighbor (Elem* elem) const
 {
@@ -1642,7 +1649,22 @@ bool Elem::on_boundary () const
   return this->has_neighbor(NULL);
 }
 
+inline
+bool Elem::has_sibling() const
+{
+  return (_sibling!=NULL);
+}
 
+inline 
+void Elem::set_sibling(Elem* elem){
+  _sibling = elem;
+}
+
+inline
+Elem* Elem::sibling() const
+{
+  return _sibling;
+}
 
 inline
 unsigned int Elem::which_neighbor_am_i (const Elem* e) const
@@ -1657,14 +1679,13 @@ unsigned int Elem::which_neighbor_am_i (const Elem* e) const
       libmesh_assert(eparent);
     }
 
-  for (unsigned int s=0; s<this->n_neighbors(); s++)
-    if (this->neighbor(s) == eparent)
+  for (unsigned int s=0; s<this->n_neighbors(); s++){
+    if (this->neighbor(s) == eparent || (eparent->has_sibling() && eparent->sibling()==this->neighbor(s)))
       return s;
+  }
 
   return libMesh::invalid_uint;
 }
-
-
 
 inline
 unsigned int Elem::which_side_am_i (const Elem* e) const
@@ -1925,6 +1946,8 @@ unsigned int Elem::which_child_am_i (const Elem* e) const
 
   for (unsigned int c=0; c<this->n_children(); c++)
     if (this->child(c) == e)
+      return c;
+    else if(e->has_sibling() && ((this->child(c))==(e->sibling()))) 
       return c;
 
   libmesh_error_msg("ERROR:  which_child_am_i() was called with a non-child!");

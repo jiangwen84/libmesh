@@ -114,6 +114,7 @@ public:
    * Reinitialize all the systems
    */
   virtual void reinit ();
+  virtual void reinit_xfem();//WJ
 
   /**
    * Updates local values for all the systems
